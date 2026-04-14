@@ -6,6 +6,10 @@ For each group, it fetches all projects via the GitLab API and either:
   - Clones the repository if it does not exist locally.
   - Pulls the latest changes from the default branch (main or master) if it already exists.
 
+After each clone or pull, the script also:
+  - Fetches all remote branches (git fetch --all --prune).
+  - Fetches GitLab merge-request refs into refs/remotes/origin/mr/*.
+
 Configuration:
   - GITLAB_URL: Base URL of the GitLab instance (no trailing slash).
   - ACCESS_TOKEN: Personal access token for GitLab API authentication.
@@ -24,7 +28,7 @@ import requests
 
 
 # Base URL of the GitLab instance — no trailing slash to avoid double-slash in API paths
-GITLAB_URL = "<GIT_URL>"
+GITLAB_URL = "<GITLAB_URL>"
 
 # GitLab personal access token for API authentication (used for the GitLab API only).
 # Replace <ACCESS_TOKEN> with your actual token before running.
@@ -117,6 +121,8 @@ def clone_repo_with_dir(clone_url: str, project_name: str, clone_dir: str) -> No
                     ["git", "-C", str(repo_path), "pull", "origin", branch],
                     check=True,
                 )
+                fetch_all_branches(repo_path)
+                fetch_mr_refs(repo_path)
                 return  # Pull succeeded — no need to try further branches
             except subprocess.CalledProcessError:
                 continue  # Try the next branch
@@ -127,6 +133,50 @@ def clone_repo_with_dir(clone_url: str, project_name: str, clone_dir: str) -> No
     # Repository does not exist locally — perform a fresh clone
     print(f"[CLONE] {project_name} into {clone_dir} ...")
     subprocess.run(["git", "clone", clone_url, str(repo_path)], check=True)
+    fetch_all_branches(repo_path)
+    fetch_mr_refs(repo_path)
+
+
+def fetch_all_branches(repo_path: Path) -> None:
+    """
+    Fetch and update all remote branches for a repository.
+
+    Runs `git fetch --all --prune` to synchronise every remote tracking branch
+    and remove any stale refs that no longer exist on the remote.
+
+    Args:
+        repo_path (Path): Absolute path to the local git repository.
+    """
+    print(f"[FETCH] Fetching all branches for {repo_path.name} ...")
+    subprocess.run(
+        ["git", "-C", str(repo_path), "fetch", "--all", "--prune"],
+        check=True,
+    )
+
+
+def fetch_mr_refs(repo_path: Path) -> None:
+    """
+    Fetch all GitLab merge-request refs into refs/remotes/origin/mr/*.
+
+    Uses the special GitLab refspec '+refs/merge-requests/*:refs/remotes/origin/mr/*'
+    so that each MR's HEAD is accessible as a local ref without creating local branches.
+    After fetching, individual MR branches can be checked out with:
+      git checkout remotes/origin/mr/<iid>
+
+    Args:
+        repo_path (Path): Absolute path to the local git repository.
+    """
+    print(f"[MR] Fetching MR refs for {repo_path.name} ...")
+    try:
+        subprocess.run(
+            [
+                "git", "-C", str(repo_path), "fetch", "origin",
+                "+refs/merge-requests/*:refs/remotes/origin/mr/*",
+            ],
+            check=True,
+        )
+    except subprocess.CalledProcessError:
+        print(f"[WARN] Could not fetch MR refs for {repo_path.name} (server may not support it)")
 
 
 def main() -> None:
