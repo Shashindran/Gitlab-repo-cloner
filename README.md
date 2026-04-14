@@ -3,6 +3,8 @@
 A Python script that clones or updates all repositories within one or more GitLab groups. For each configured group it will:
 - **Clone** the repository if it does not yet exist locally.
 - **Pull** the latest changes (tries `main`, then `master`) if it already exists.
+- **Fetch all remote branches** (`git fetch --all --prune`) to keep every branch up to date and prune stale refs.
+- **Fetch GitLab MR refs** into `refs/remotes/origin/mr/*` so every merge request is accessible locally without creating local branches.
 
 ---
 
@@ -105,11 +107,39 @@ python3 clone_repo.py
 
 Expected output:
 ```
-[GROUP] Cloning projects for group 567 into /target/folder/1/
-[CLONE] my-service into /home/youruser/development/allianz/cloud-first/ ...
+[GROUP] Cloning projects for group 1234 into /target/folder/1/
+[CLONE] my-service into /target/folder/1/ ...
+[FETCH] Fetching all branches for my-service ...
+[MR]    Fetching MR refs for my-service ...
 [PULL]  other-service already exists. Pulling latest main/master...
+[FETCH] Fetching all branches for other-service ...
+[MR]    Fetching MR refs for other-service ...
+[WARN]  Could not fetch MR refs for legacy-repo (server may not support it)
 [ERROR] Failed to clone broken-repo
 ```
+
+---
+
+## Working with fetched MR refs
+
+After the script runs, every open (and recently closed) MR is available as a remote ref under `refs/remotes/origin/mr/<iid>`.
+
+**List all fetched MR refs:**
+```bash
+git -C /path/to/repo branch -r | grep origin/mr/
+```
+
+**Inspect a specific MR (read-only detached HEAD):**
+```bash
+git -C /path/to/repo checkout remotes/origin/mr/42
+```
+
+**Create a local tracking branch for a MR:**
+```bash
+git -C /path/to/repo checkout -b mr/42 remotes/origin/mr/42
+```
+
+> **Note:** MR ref fetching uses the GitLab-specific refspec `+refs/merge-requests/*:refs/remotes/origin/mr/*`. If a repository's server does not expose this refspec (e.g. some self-hosted configurations), the script prints a `[WARN]` and continues without failing.
 
 ---
 
